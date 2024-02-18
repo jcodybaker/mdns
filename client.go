@@ -4,6 +4,7 @@
 package mdns
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -68,7 +69,16 @@ func DefaultParams(service string) *QueryParam {
 // to a channel. Sends will not block, so clients should make sure to
 // either read or buffer.
 func Query(params *QueryParam) error {
-	if params.Log == nil {
+	return QueryContext(context.Background(), params)
+}
+
+// QueryContext looks up a given service, in a domain, waiting at most
+// for a timeout before finishing the query. The results are streamed
+// to a channel. Sends will not block, so clients should make sure to
+// either read or buffer. QueryContext will attempt to stop the query
+// on cancellation.
+func QueryContext(ctx context.Context, params *QueryParam) error {
+  if params.Log == nil {
 		params.Log = log.Default()
 	}
 	// Create a new client
@@ -77,6 +87,15 @@ func Query(params *QueryParam) error {
 		return err
 	}
 	defer client.Close()
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			client.Close()
+		case <-client.closedCh:
+			return
+		}
+	}()
 
 	// Set the multicast interface
 	if params.Interface != nil {
